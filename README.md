@@ -89,6 +89,8 @@ GestionEquipe/
 ├── bd/                   # Connexion PDO
 └── Assets/               # Ressources (logos, images)
 
+```
+
 ---
 
 # Installation et utilisation en local
