@@ -1,0 +1,134 @@
+<?php
+require_once 'Dao.php';
+require_once __DIR__ . '/../Match_.php';
+require_once __DIR__ . '/requetes/RequeteMatch.php';
+
+class DaoMatch implements Dao {
+    private PDO $pdo;
+
+    public function __construct(PDO $pdo){
+        $this->pdo = $pdo;
+    }
+
+    public function findAll(): array {
+        $req = new RequeteMatch('selectAll');
+        $stmt = $this->pdo->prepare($req->requete());
+        $stmt->execute();
+        $result = [];
+        while($row = $stmt->fetch(PDO::FETCH_ASSOC)){
+            $result[] = $this->creerInstance($row);
+        }
+        return $result;
+    }
+
+    public function findFuturs(): array {
+        $req = new RequeteMatch('selectFuturs');
+        $stmt = $this->pdo->prepare($req->requete());
+        $stmt->execute();
+        $result = [];
+        while($row = $stmt->fetch(PDO::FETCH_ASSOC)){
+            $result[] = $this->creerInstance($row);
+        }
+        return $result;
+    }
+
+    public function findById(string $id): ?Match_ {
+        $req = new RequeteMatch('selectById');
+        $stmt = $this->pdo->prepare($req->requete());
+        $req->parametresId($stmt, $id);
+        $stmt->execute();
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ? $this->creerInstance($row) : null;
+    }
+
+    public function create(object $obj): bool {
+
+        if (!($obj instanceof Match_)) {
+            return false;
+        }
+
+        $req = new RequeteMatch('insert');
+        $stmt = $this->pdo->prepare($req->requete());
+        $req->parametresObjet($stmt, $obj);
+        return $stmt->execute();
+    }
+
+    public function update(object $obj): bool {
+
+        if (!($obj instanceof Match_)) {
+            return false;
+        }
+
+        $req = new RequeteMatch('update');
+        $stmt = $this->pdo->prepare($req->requete());
+        $req->parametresObjet($stmt, $obj);
+        return $stmt->execute();
+    }
+
+    // ... (Avant la méthode delete) ...
+    public function delete(object $obj): bool {
+        $stmt_participer = $this->pdo->prepare(
+            "DELETE FROM Participer WHERE id_match = :id_match"
+        );
+        $stmt_participer->bindValue(':id_match', $obj->getIdMatch());
+        $stmt_participer->execute(); 
+
+        // 2. Suppression du Match (Parent)
+        $req = new RequeteMatch('delete');
+        $stmt = $this->pdo->prepare($req->requete());
+        $req->parametresId($stmt, $obj->getIdMatch()); 
+        return $stmt->execute();
+    }
+
+    public function getGlobalStats(): array {
+        // Requête qui calcule la victoire/défaite/nul en parsant le résultat
+        // Format résultat : "X-Y"
+        // Domicile : X (mon équipe) - Y (adversaire)
+        // Extérieur : X (adversaire) - Y (mon équipe)
+        $sql = "SELECT 
+            COUNT(*) as total,
+            SUM(CASE 
+                WHEN resultat IS NOT NULL AND resultat != '' THEN
+                    CASE 
+                        WHEN (lieu = 'Domicile' AND CAST(SUBSTRING_INDEX(resultat, '-', 1) AS UNSIGNED) > CAST(SUBSTRING_INDEX(resultat, '-', -1) AS UNSIGNED)) THEN 1
+                        WHEN (lieu = 'Extérieur' AND CAST(SUBSTRING_INDEX(resultat, '-', -1) AS UNSIGNED) > CAST(SUBSTRING_INDEX(resultat, '-', 1) AS UNSIGNED)) THEN 1
+                        ELSE 0
+                    END
+                ELSE 0
+            END) as victoires,
+            SUM(CASE 
+                WHEN resultat IS NOT NULL AND resultat != '' AND CAST(SUBSTRING_INDEX(resultat, '-', 1) AS UNSIGNED) = CAST(SUBSTRING_INDEX(resultat, '-', -1) AS UNSIGNED) THEN 1
+                ELSE 0
+            END) as nuls,
+            SUM(CASE 
+                WHEN resultat IS NOT NULL AND resultat != '' THEN
+                    CASE 
+                        WHEN (lieu = 'Domicile' AND CAST(SUBSTRING_INDEX(resultat, '-', 1) AS UNSIGNED) < CAST(SUBSTRING_INDEX(resultat, '-', -1) AS UNSIGNED)) THEN 1
+                        WHEN (lieu = 'Extérieur' AND CAST(SUBSTRING_INDEX(resultat, '-', -1) AS UNSIGNED) < CAST(SUBSTRING_INDEX(resultat, '-', 1) AS UNSIGNED)) THEN 1
+                        ELSE 0
+                    END
+                ELSE 0
+            END) as defaites
+        FROM Match_ 
+        WHERE resultat IS NOT NULL AND resultat != ''";
+            
+        $stmt = $this->pdo->query($sql);
+        $res = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        // Sécurité : si la requête ne renvoie rien, on évite le "null"
+        return $res ? $res : ['total' => 0, 'victoires' => 0, 'nuls' => 0, 'defaites' => 0];
+    }
+
+    private function creerInstance(array $row): Match_ {
+        return new Match_(
+            $row['id_match'],
+            $row['date_'],
+            $row['heure'] ?? null,
+            $row['adversaire'] ?? null,
+            $row['logo_adversaire'] ?? null,
+            $row['lieu'] ?? null,
+            $row['resultat'] ?? null
+        );
+    }
+}
+?>
